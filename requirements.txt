@@ -2,5 +2,5 @@ streamlit
 yfinance
 pandas
 statsmodels
-streamlit-autorefres
+streamlit-autorefresh
 
