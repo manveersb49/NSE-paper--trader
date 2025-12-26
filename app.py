@@ -5,82 +5,80 @@ import requests
 from bs4 import BeautifulSoup
 from streamlit_autorefresh import st_autorefresh
 
-# --- 1. SETTINGS & REFRESH ---
-st.set_page_config(page_title="NSE Pair Trader ⚡", layout="wide")
-st_autorefresh(interval=15 * 1000, key="global_refresh")
+# --- 1. SETTINGS ---
+st.set_page_config(page_title="NSE Live Pair Trader", layout="wide")
+st_autorefresh(interval=15 * 1000, key="refresh")
 
-# --- 2. LIVE DATA ENGINE ---
+# --- 2. THE IMPROVED SCRAPER (FIXED) ---
 def get_spot(ticker):
     try:
         url = f"https://www.google.com/finance/quote/{ticker}:NSE"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'}
         resp = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(resp.text, 'html.parser')
-        price = soup.find("div", {"class": "YMlS7e"}).text
-        return float(price.replace("₹", "").replace(",", ""))
+        
+        # Checking multiple possible price classes used by Google
+        for class_name in ["YMlS7e", "fx67Eb", "IsqPge"]:
+            element = soup.find("div", {"class": class_name})
+            if element:
+                price_text = element.text.replace("₹", "").replace(",", "").strip()
+                return float(price_text)
+        return None
     except: return None
 
 @st.cache_data(ttl=3600)
 def get_stats(s1, s2):
-    # Historical data to calculate Mean and Std Dev for Z-Score
     df = yf.download([f"{s1}.NS", f"{s2}.NS"], period="5d", interval="5m", progress=False)['Close']
     ratio = df[f"{s1}.NS"] / df[f"{s2}.NS"]
     return ratio.mean(), ratio.std()
 
-# --- 3. SESSION STATE FOR TRADES ---
+# --- 3. SESSION STATE ---
 if 'ledger' not in st.session_state:
     st.session_state.ledger = []
 
-# --- 4. UI TOP BAR ---
+# --- 4. APP LAYOUT ---
 st.title("⚡ NSE Pair Trader")
-st.write("Market Status: 🟢 Live | Refresh: 15s")
+st.write("Status: 🟢 Live Market Feed")
 
-# SECTORS from your sketch
 sectors = {
     "🏦 Banking": [("HDFCBANK", "ICICIBANK"), ("SBIN", "BANKBARODA")],
     "💻 IT": [("TCS", "INFY"), ("WIPRO", "HCLTECH")],
     "⛽ Energy": [("RELIANCE", "ONGC"), ("BPCL", "IOC")]
 }
 
-# --- 5. SECTOR TABS ---
 tabs = st.tabs(list(sectors.keys()))
 
 for i, (name, pairs) in enumerate(sectors.items()):
     with tabs[i]:
         for s1, s2 in pairs:
-            # Logic & Calculations
-            mean, std = get_stats(s1, s2)
             p1 = get_spot(s1)
             p2 = get_spot(s2)
+            mean, std = get_stats(s1, s2)
             
             if p1 and p2:
                 curr_ratio = p1 / p2
                 z_score = round((curr_ratio - mean) / std, 2)
                 
-                # Layout based on your drawing
-                col_info, col_chart = st.columns([1, 1])
-                
-                with col_info:
+                # Side-by-side layout from your sketch
+                col1, col2 = st.columns([1, 1])
+                with col1:
                     st.markdown(f"### {s1} vs {s2}")
-                    st.write(f"**Z-Value:** `{z_score}`")
-                    st.write(f"**{s1} Live:** ₹{p1}")
-                    st.write(f"**{s2} Live:** ₹{p2}")
+                    st.metric("Z-Value", z_score)
+                    st.write(f"**{s1}:** ₹{p1} | **{s2}:** ₹{p2}")
                     
-                    b1, b2 = st.columns(2)
-                    if b1.button(f"Buy {s1}", key=f"b_{s1}"):
-                        st.session_state.ledger.append({"pair": f"{s1}/{s2}", "entry_z": z_score, "price": p1})
-                    if b2.button(f"Sell {s1}", key=f"s_{s1}"):
-                        st.session_state.ledger.append({"pair": f"{s1}/{s2}", "entry_z": z_score, "price": p1})
+                    if st.button(f"Trade {s1}/{s2}", key=f"tr_{s1}"):
+                        st.session_state.ledger.append({"pair": f"{s1}/{s2}", "z": z_score, "p1": p1})
                 
-                with col_chart:
-                    # Placeholder for the chart in your sketch
-                    st.line_chart(pd.Series([mean-std*2, mean, mean+std*2, curr_ratio], index=['Low','Mean','High','Now']))
+                with col2:
+                    st.line_chart([mean-std*2, mean, mean+std*2, curr_ratio])
+            else:
+                st.warning(f"Searching for {s1} and {s2} live prices...")
             st.divider()
 
-# --- 6. PNL PANEL (Bottom of your sketch) ---
+# --- 5. PNL SECTION ---
 st.subheader("📊 Active Positions | PnL")
 if st.session_state.ledger:
     for trade in st.session_state.ledger:
-        st.info(f"Trade: {trade['pair']} | Entry Z: {trade['entry_z']} | Live tracking...")
+        st.write(f"✅ **{trade['pair']}** | Entry Z: {trade['z']} | Entry Price: ₹{trade['p1']}")
 else:
-    st.write("No active trades. Tap 'Buy' to start paper trading.")
+    st.caption("No active trades. Tap 'Trade' to begin.")
