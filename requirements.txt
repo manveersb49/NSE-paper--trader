@@ -1,9 +1,10 @@
 streamlit
 pandas
-statsmodels
-streamlit-autorefresh
+yfinance
 beautifulsoup4
 requests
+streamlit-autorefresh
+
 
 
 
